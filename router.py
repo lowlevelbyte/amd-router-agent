@@ -1,4 +1,4 @@
-"""Cascade controller: computed -> local -> verify -> remote."""
+"""Cascade controller: computed -> local -> verify -> remote. With duplicate-prompt caching."""
 from local_model import LocalModel
 from remote_model import RemoteModel
 from token_meter import TokenMeter
@@ -10,17 +10,26 @@ class RoutingAgent:
         self.remote_model = remote_model
         self.meter = meter
         self.use_self_consistency = use_self_consistency
+        self.answer_cache = {}
 
     def solve(self, task):
         task_id = task.get("id", "unknown")
         prompt = build_prompt(task)
         task_type = task.get("type", "").lower()
+        cache_key = (task_type, prompt)
+
+        if cache_key in self.answer_cache:
+            cached = self.answer_cache[cache_key]
+            return {"task_id": task_id, "answer": cached["answer"], "route": cached["route"],
+                     "reason": "cache hit (duplicate prompt)"}
 
         if task_type in ("math", "numeric", "arithmetic"):
             computed = try_deterministic_math(prompt)
             if computed is not None:
-                return {"task_id": task_id, "answer": str(computed), "route": "computed",
-                        "reason": "solved via zero-cost deterministic calculator"}
+                result = {"task_id": task_id, "answer": str(computed), "route": "computed",
+                           "reason": "solved via zero-cost deterministic calculator"}
+                self.answer_cache[cache_key] = {"answer": result["answer"], "route": result["route"]}
+                return result
 
         local_resp = self.local_model.generate(prompt)
         self.meter.record_local(task_id, local_resp.total_tokens)
@@ -36,12 +45,17 @@ class RoutingAgent:
 
         if verdict.accept:
             final_answer = strip_code_fences(local_resp.text) if task_type == "json" else local_resp.text
-            return {"task_id": task_id, "answer": final_answer.strip(), "route": "local", "reason": verdict.reason}
+            result = {"task_id": task_id, "answer": final_answer.strip(), "route": "local", "reason": verdict.reason}
+            self.answer_cache[cache_key] = {"answer": result["answer"], "route": result["route"]}
+            return result
 
         remote_resp = self.remote_model.generate(prompt)
         self.meter.record_remote(task_id, remote_resp.total_tokens)
         final_answer = strip_code_fences(remote_resp.text) if task_type == "json" else remote_resp.text
-        return {"task_id": task_id, "answer": final_answer.strip(), "route": "remote", "reason": f"escalated: {verdict.reason}"}
+        result = {"task_id": task_id, "answer": final_answer.strip(), "route": "remote",
+                   "reason": f"escalated: {verdict.reason}"}
+        self.answer_cache[cache_key] = {"answer": result["answer"], "route": result["route"]}
+        return result
 
     def solve_batch(self, tasks):
         return [self.solve(task) for task in tasks]
