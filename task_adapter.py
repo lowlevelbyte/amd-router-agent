@@ -13,7 +13,7 @@ def build_prompt(task):
 
 def strip_code_fences(text):
     stripped = text.strip()
-    match = re.match(r"^```(?:json)?\s*\n?(.*?)\n?```$", stripped, re.DOTALL)
+    match = re.match(r"^```(?:json)?\\s*\\n?(.*?)\\n?```$", stripped, re.DOTALL)
     return match.group(1).strip() if match else stripped
 
 _SAFE_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
@@ -32,7 +32,7 @@ def _safe_eval(node):
 
 def try_deterministic_math(prompt_text):
     cleaned = prompt_text.replace("\u00d7", "*").replace("x", "*")
-    match = re.search(r"(-?\d+\.?\d*)\s*([*+\-/])\s*(-?\d+\.?\d*)", cleaned)
+    match = re.search(r"(-?\\d+\\.?\\d*)\\s*([*+\\-/])\\s*(-?\\d+\\.?\\d*)", cleaned)
     if not match:
         return None
     expr = f"{match.group(1)} {match.group(2)} {match.group(3)}"
@@ -43,7 +43,7 @@ def try_deterministic_math(prompt_text):
         return None
 
 def verify_numeric_answer(task, answer_text):
-    numbers = re.findall(r"-?\d+\.?\d*", answer_text)
+    numbers = re.findall(r"-?\\d+\\.?\\d*", answer_text)
     if len(numbers) == 1:
         return VerdictResult(True, "single clean numeric answer found")
     if len(numbers) == 0:
@@ -51,8 +51,8 @@ def verify_numeric_answer(task, answer_text):
     return VerdictResult(False, "ambiguous: multiple numbers in answer")
 
 def verify_numeric_consistency(answer_a, answer_b):
-    nums_a = re.findall(r"-?\d+\.?\d*", answer_a)
-    nums_b = re.findall(r"-?\d+\.?\d*", answer_b)
+    nums_a = re.findall(r"-?\\d+\\.?\\d*", answer_a)
+    nums_b = re.findall(r"-?\\d+\\.?\\d*", answer_b)
     if len(nums_a) == 1 and len(nums_b) == 1:
         try:
             if abs(float(nums_a[0]) - float(nums_b[0])) < 1e-6:
@@ -89,7 +89,7 @@ def generic_verifier(task, answer_text):
     stripped = answer_text.strip()
     if len(stripped) < 2:
         return VerdictResult(False, "answer too short / empty")
-    if stripped.lower() in {"i don't know", "i'm not sure", "unclear", "n/a"}:
+    if stripped.lower() in {"i don\'t know", "i\'m not sure", "unclear", "n/a"}:
         return VerdictResult(False, "model expressed uncertainty")
     return VerdictResult(True, "passed generic sanity check")
 
