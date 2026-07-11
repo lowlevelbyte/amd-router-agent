@@ -28,3 +28,5 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/grandmaster0111/amd-router-agent:latest
+          provenance: false
+          sbom: false
