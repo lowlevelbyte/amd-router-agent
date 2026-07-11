@@ -13,7 +13,7 @@ class LocalResponse:
         return self.prompt_tokens + self.completion_tokens
 
 class LocalModel:
-    def __init__(self, model_name="Qwen/Qwen2.5-1.5B-Instruct", device=None):
+    def __init__(self, model_name="Qwen/Qwen2.5-0.5B-Instruct", device=None):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.bfloat16 if self.device == "cuda" else torch.float32

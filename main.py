@@ -7,7 +7,7 @@ from token_meter import TokenMeter
 
 INPUT_PATH = os.environ.get("TASKS_INPUT_PATH", "/input/tasks.json")
 OUTPUT_PATH = os.environ.get("RESULTS_OUTPUT_PATH", "/output/results.json")
-LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "Qwen/Qwen2.5-1.5B-Instruct")
+LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct")
 REMOTE_MODEL_NAME = os.environ.get("REMOTE_MODEL_NAME", "accounts/fireworks/models/gpt-oss-120b")
 
 def _write_results(results):
