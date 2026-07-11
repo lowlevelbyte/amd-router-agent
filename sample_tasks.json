@@ -1,0 +1,4 @@
+[
+  {"id": "t1", "type": "math", "prompt": "What is 17 * 24? Answer with only the number.", "expected_answer": "408"},
+  {"id": "t2", "type": "classification", "prompt": "Classify the sentiment as positive or negative: The product broke after two days.", "choices": ["positive", "negative"], "expected_answer": "negative"}
+]
