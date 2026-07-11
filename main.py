@@ -19,7 +19,19 @@ def main():
     meter = TokenMeter()
     agent = RoutingAgent(local, remote, meter, use_self_consistency=False)
 
-    results = agent.solve_batch(tasks)
+    results = []
+    for task in tasks:
+        try:
+            results.append(agent.solve(task))
+        except Exception as e:
+            # Absolute last resort -- guarantees every task_id gets SOME
+            # entry in results.json, even if everything else failed.
+            results.append({
+                "task_id": task.get("id", "unknown"),
+                "answer": "",
+                "route": "failed",
+                "reason": f"unrecoverable error: {e}",
+            })
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
