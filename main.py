@@ -1,14 +1,14 @@
 """Entrypoint: /input/tasks.json -> /output/results.json"""
 import json, os
 from local_model import LocalModel
-from remote_model import RemoteModel
+from remote_model import RemoteModel, resolve_remote_model_name
 from router import RoutingAgent
 from token_meter import TokenMeter
 
 INPUT_PATH = os.environ.get("TASKS_INPUT_PATH", "/input/tasks.json")
 OUTPUT_PATH = os.environ.get("RESULTS_OUTPUT_PATH", "/output/results.json")
 LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct")
-REMOTE_MODEL_NAME = os.environ.get("REMOTE_MODEL_NAME", "accounts/fireworks/models/gpt-oss-120b")
+REMOTE_MODEL_NAME = resolve_remote_model_name()
 
 def _write_results(results):
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
@@ -16,6 +16,10 @@ def _write_results(results):
         json.dump(results, f, indent=2)
 
 def main():
+    print(f"[startup] FIREWORKS_BASE_URL={os.environ.get('FIREWORKS_BASE_URL') or '(not set, using default)'}")
+    print(f"[startup] ALLOWED_MODELS={os.environ.get('ALLOWED_MODELS') or '(not set)'}")
+    print(f"[startup] Resolved REMOTE_MODEL_NAME={REMOTE_MODEL_NAME}")
+
     results = []
     try:
         with open(INPUT_PATH) as f:
