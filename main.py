@@ -25,16 +25,19 @@ def solve_task(task, remote, meter):
             return {"task_id": task_id, "answer": str(computed), "route": "computed",
                     "reason": "solved via zero-cost deterministic calculator"}
 
-    resp = remote.generate(prompt, reasoning_effort="none")
+    # Reasoning enabled by default (prioritizing accuracy over token cost
+    # until the accuracy gate is cleared) -- reasoning_effort=None omits
+    # the field from the request entirely.
+    resp = remote.generate(prompt, max_tokens=1536, reasoning_effort=None)
     meter.record_remote(task_id, resp.total_tokens)
     answer_text = strip_code_fences(resp.text) if task_type == "json" else resp.text
     verdict = verify(task, answer_text)
     reason = verdict.reason
 
     if not verdict.accept:
-        # reasoning_effort="none" plus a tight max_tokens can come back
-        # truncated/empty on harder tasks -- retry once with reasoning
-        # enabled and more headroom before accepting a failed answer.
+        # First attempt already has reasoning enabled; if verification
+        # still fails, retry once with more headroom in case the answer
+        # was truncated mid-reasoning.
         retry_resp = remote.generate(prompt, max_tokens=2048, reasoning_effort=None)
         meter.record_remote(task_id, retry_resp.total_tokens)
         retry_text = strip_code_fences(retry_resp.text) if task_type == "json" else retry_resp.text

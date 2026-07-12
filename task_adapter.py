@@ -7,9 +7,17 @@ class VerdictResult:
     accept: bool
     reason: str
 
+_ANSWER_INSTRUCTION = (
+    "Answer directly and precisely. If the question expects a specific format "
+    "(a number, a label, JSON, a short phrase), respond with ONLY that -- no "
+    "extra explanation, preamble, or restatement of the question.\n\n"
+)
+
+def _raw_task_text(task):
+    return (task.get("prompt") or task.get("question") or task.get("input", "")).strip()
+
 def build_prompt(task):
-    instruction = task.get("prompt") or task.get("question") or task.get("input", "")
-    return instruction.strip()
+    return _ANSWER_INSTRUCTION + _raw_task_text(task)
 
 def strip_code_fences(text):
     stripped = text.strip()
@@ -85,12 +93,21 @@ def verify_self_consistency(answer_a, answer_b, similarity_threshold=0.8):
         return VerdictResult(True, f"self-consistent (ratio={ratio:.2f})")
     return VerdictResult(False, f"low self-consistency (ratio={ratio:.2f})")
 
+_UNCERTAIN_PHRASES = (
+    "i don't know", "i'm not sure", "unclear", "n/a",
+    "i cannot", "i can't", "as an ai", "i don't have enough information",
+    "insufficient information", "not enough information",
+)
+
 def generic_verifier(task, answer_text):
     stripped = answer_text.strip()
     if len(stripped) < 2:
         return VerdictResult(False, "answer too short / empty")
-    if stripped.lower() in {"i don\'t know", "i\'m not sure", "unclear", "n/a"}:
-        return VerdictResult(False, "model expressed uncertainty")
+    lowered = stripped.lower()
+    if lowered in _UNCERTAIN_PHRASES or any(lowered.startswith(p) for p in _UNCERTAIN_PHRASES):
+        return VerdictResult(False, "model expressed uncertainty or refused to answer")
+    if lowered == _raw_task_text(task).lower():
+        return VerdictResult(False, "answer just echoes the question back")
     return VerdictResult(True, "passed generic sanity check")
 
 def verify(task, answer_text, second_sample=None):
