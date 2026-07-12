@@ -47,7 +47,7 @@ class RemoteModel:
         self.api_key = api_key or os.environ.get("FIREWORKS_API_KEY") or None
         self.base_url = _resolve_base_url()
 
-    def generate(self, prompt, max_tokens=1024, temperature=0.0, max_retries=0, timeout=45, reasoning_effort="none"):
+    def generate(self, prompt, max_tokens=1024, temperature=0.0, max_retries=0, timeout=20, reasoning_effort="none"):
         if not self.api_key:
             return RemoteResponse(text="", prompt_tokens=0, completion_tokens=0, truncated=False,
                                    reason="FIREWORKS_API_KEY not set")
