@@ -7,7 +7,7 @@ from token_meter import TokenMeter
 
 INPUT_PATH = os.environ.get("INPUT_PATH") or os.environ.get("TASKS_INPUT_PATH") or "/input/tasks.json"
 OUTPUT_PATH = os.environ.get("OUTPUT_PATH") or os.environ.get("RESULTS_OUTPUT_PATH") or "/output/results.json"
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "8"))
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "16"))
 
 def _write_results(results):
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
@@ -25,26 +25,15 @@ def solve_task(task, remote, meter):
             return {"task_id": task_id, "answer": str(computed), "route": "computed",
                     "reason": "solved via zero-cost deterministic calculator"}
 
-    # reasoning_effort="low" balances accuracy against latency on the first
-    # attempt; reasoning_effort=None (unbounded) is reserved for the retry
-    # path below, since that only fires for a minority of tasks.
-    resp = remote.generate(prompt, max_tokens=1024, reasoning_effort="low")
+    # Exactly one Fireworks call per task -- a verification-failure retry
+    # was doubling call time for any task that failed on the first attempt,
+    # which was a major contributor to TIMEOUT under evaluation load.
+    resp = remote.generate(prompt, max_tokens=768, reasoning_effort="low")
     meter.record_remote(task_id, resp.total_tokens)
     answer_text = strip_code_fences(resp.text) if task_type == "json" else resp.text
     verdict = verify(task, answer_text)
-    reason = verdict.reason
 
-    if not verdict.accept:
-        # First attempt used bounded reasoning; if verification still
-        # fails, retry once with full reasoning and more headroom for
-        # genuinely hard cases.
-        retry_resp = remote.generate(prompt, max_tokens=1536, reasoning_effort=None)
-        meter.record_remote(task_id, retry_resp.total_tokens)
-        retry_text = strip_code_fences(retry_resp.text) if task_type == "json" else retry_resp.text
-        retry_verdict = verify(task, retry_text)
-        answer_text, reason = retry_text, f"retry with reasoning enabled: {retry_verdict.reason}"
-
-    return {"task_id": task_id, "answer": answer_text.strip(), "route": "remote", "reason": reason}
+    return {"task_id": task_id, "answer": answer_text.strip(), "route": "remote", "reason": verdict.reason}
 
 def _solve_with_safety_net(task, remote, meter):
     start = time.time()
