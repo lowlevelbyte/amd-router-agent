@@ -1,5 +1,5 @@
 """Entrypoint: /input/tasks.json -> /output/results.json (Fireworks-only, no local model)."""
-import json, os
+import json, os, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from remote_model import RemoteModel, resolve_allowed_models
 from task_adapter import build_prompt, verify, try_deterministic_math, strip_code_fences
@@ -25,20 +25,20 @@ def solve_task(task, remote, meter):
             return {"task_id": task_id, "answer": str(computed), "route": "computed",
                     "reason": "solved via zero-cost deterministic calculator"}
 
-    # Reasoning enabled by default (prioritizing accuracy over token cost
-    # until the accuracy gate is cleared) -- reasoning_effort=None omits
-    # the field from the request entirely.
-    resp = remote.generate(prompt, max_tokens=1536, reasoning_effort=None)
+    # reasoning_effort="low" balances accuracy against latency on the first
+    # attempt; reasoning_effort=None (unbounded) is reserved for the retry
+    # path below, since that only fires for a minority of tasks.
+    resp = remote.generate(prompt, max_tokens=1024, reasoning_effort="low")
     meter.record_remote(task_id, resp.total_tokens)
     answer_text = strip_code_fences(resp.text) if task_type == "json" else resp.text
     verdict = verify(task, answer_text)
     reason = verdict.reason
 
     if not verdict.accept:
-        # First attempt already has reasoning enabled; if verification
-        # still fails, retry once with more headroom in case the answer
-        # was truncated mid-reasoning.
-        retry_resp = remote.generate(prompt, max_tokens=2048, reasoning_effort=None)
+        # First attempt used bounded reasoning; if verification still
+        # fails, retry once with full reasoning and more headroom for
+        # genuinely hard cases.
+        retry_resp = remote.generate(prompt, max_tokens=1536, reasoning_effort=None)
         meter.record_remote(task_id, retry_resp.total_tokens)
         retry_text = strip_code_fences(retry_resp.text) if task_type == "json" else retry_resp.text
         retry_verdict = verify(task, retry_text)
@@ -47,17 +47,19 @@ def solve_task(task, remote, meter):
     return {"task_id": task_id, "answer": answer_text.strip(), "route": "remote", "reason": reason}
 
 def _solve_with_safety_net(task, remote, meter):
+    start = time.time()
     try:
-        return solve_task(task, remote, meter)
+        result = solve_task(task, remote, meter)
     except Exception as e:
         # Absolute last resort -- guarantees every task_id gets SOME
         # entry in results.json, even if everything else failed.
-        return {
+        result = {
             "task_id": task.get("id", "unknown"),
             "answer": "",
             "route": "failed",
             "reason": f"unrecoverable error: {e}",
         }
+    return result, time.time() - start
 
 def main():
     allowed_models = resolve_allowed_models()
@@ -84,9 +86,10 @@ def main():
             }
             for future in as_completed(future_to_index):
                 index = future_to_index[future]
-                results[index] = future.result()
+                result, elapsed = future.result()
+                results[index] = result
                 completed += 1
-                print(f"Completed {completed}/{len(tasks)} tasks")
+                print(f"Completed {completed}/{len(tasks)} tasks (last took {elapsed:.1f}s)")
 
         _write_results(results)
         print(f"Wrote {len(results)} results to {OUTPUT_PATH}")
