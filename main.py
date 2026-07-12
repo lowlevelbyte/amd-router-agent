@@ -1,11 +1,13 @@
 """Entrypoint: /input/tasks.json -> /output/results.json (Fireworks-only, no local model)."""
 import json, os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from remote_model import RemoteModel, resolve_allowed_models
 from task_adapter import build_prompt, verify, try_deterministic_math, strip_code_fences
 from token_meter import TokenMeter
 
 INPUT_PATH = os.environ.get("INPUT_PATH") or os.environ.get("TASKS_INPUT_PATH") or "/input/tasks.json"
 OUTPUT_PATH = os.environ.get("OUTPUT_PATH") or os.environ.get("RESULTS_OUTPUT_PATH") or "/output/results.json"
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "8"))
 
 def _write_results(results):
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
@@ -41,32 +43,47 @@ def solve_task(task, remote, meter):
 
     return {"task_id": task_id, "answer": answer_text.strip(), "route": "remote", "reason": reason}
 
+def _solve_with_safety_net(task, remote, meter):
+    try:
+        return solve_task(task, remote, meter)
+    except Exception as e:
+        # Absolute last resort -- guarantees every task_id gets SOME
+        # entry in results.json, even if everything else failed.
+        return {
+            "task_id": task.get("id", "unknown"),
+            "answer": "",
+            "route": "failed",
+            "reason": f"unrecoverable error: {e}",
+        }
+
 def main():
     allowed_models = resolve_allowed_models()
     print(f"[startup] FIREWORKS_BASE_URL={os.environ.get('FIREWORKS_BASE_URL') or '(not set, using default)'}")
     print(f"[startup] ALLOWED_MODELS={os.environ.get('ALLOWED_MODELS') or '(not set)'}")
     print(f"[startup] Resolved model fallback chain={allowed_models}")
+    print(f"[startup] MAX_WORKERS={MAX_WORKERS}")
 
     results = []
     try:
         with open(INPUT_PATH) as f:
             tasks = json.load(f)
+        print(f"[startup] Loaded {len(tasks)} tasks")
 
         remote = RemoteModel(allowed_models=allowed_models)
         meter = TokenMeter()
 
-        for task in tasks:
-            try:
-                results.append(solve_task(task, remote, meter))
-            except Exception as e:
-                # Absolute last resort -- guarantees every task_id gets SOME
-                # entry in results.json, even if everything else failed.
-                results.append({
-                    "task_id": task.get("id", "unknown"),
-                    "answer": "",
-                    "route": "failed",
-                    "reason": f"unrecoverable error: {e}",
-                })
+        results = [None] * len(tasks)
+        completed = 0
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_index = {
+                executor.submit(_solve_with_safety_net, task, remote, meter): i
+                for i, task in enumerate(tasks)
+            }
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                results[index] = future.result()
+                completed += 1
+                print(f"Completed {completed}/{len(tasks)} tasks")
 
         _write_results(results)
         print(f"Wrote {len(results)} results to {OUTPUT_PATH}")

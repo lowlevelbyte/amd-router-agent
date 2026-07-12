@@ -1,4 +1,5 @@
 """Tracks token usage: local (free) vs remote (billable)."""
+import threading
 from dataclasses import dataclass, field
 
 @dataclass
@@ -8,16 +9,19 @@ class TokenMeter:
     remote_calls: int = 0
     local_calls: int = 0
     log: list = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def record_local(self, task_id, tokens):
-        self.local_tokens += tokens
-        self.local_calls += 1
-        self.log.append({"task_id": task_id, "route": "local", "tokens": tokens})
+        with self._lock:
+            self.local_tokens += tokens
+            self.local_calls += 1
+            self.log.append({"task_id": task_id, "route": "local", "tokens": tokens})
 
     def record_remote(self, task_id, tokens):
-        self.remote_tokens += tokens
-        self.remote_calls += 1
-        self.log.append({"task_id": task_id, "route": "remote", "tokens": tokens})
+        with self._lock:
+            self.remote_tokens += tokens
+            self.remote_calls += 1
+            self.log.append({"task_id": task_id, "route": "remote", "tokens": tokens})
 
     @property
     def billable_tokens(self):
